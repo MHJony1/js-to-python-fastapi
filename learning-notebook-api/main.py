@@ -1,4 +1,5 @@
-from fastapi import FastAPI  # type: ignore[import-not-found]
+import random
+from fastapi import FastAPI, HTTPException # type: ignore[import-not-found]
 from pydantic import BaseModel  # type: ignore[import-not-found]
 
 app = FastAPI()
@@ -67,7 +68,13 @@ def get_terms(tag: str | None = None, q: str | None = None):
         continue
     result.append(note)
   return result
- 
+
+
+@app.get("/terms/random")
+def random_term():
+   if len(notes) == 0:
+      raise HTTPException(status_code=404, detail="No terms yet")
+   return random.choice(notes)
 
 
 @app.get("/terms/{term_id}")
@@ -75,13 +82,20 @@ def get_term(term_id: int):
   for note in notes:
     if note["id"] == term_id:
       return note
-  return{"error": "Term not found"}
+  raise HTTPException(status_code=404, detail="Term not found")
 
 
 
 @app.post("/terms", status_code=201)
 def add_term(note: Note):
-   new_note = {"id" : len(notes) + 1}
+   for existing in notes:
+      if existing["term"].lower() == note.term.lower():
+         raise HTTPException(status_code=409, detail="Term already exists")   
+   new_id = 1
+   for existing in notes:
+      if existing["id"] >= new_id:
+         new_id = existing["id"] + 1
+   new_note = {"id" : new_id}
    new_note.update(note.model_dump())
    notes.append(new_note)
    return new_note
@@ -93,4 +107,28 @@ def update_term(term_id: int, changes: NoteUpdate):
       if note["id"] == term_id:
          note.update(changes.model_dump(exclude_unset = True))
          return note
-   return {"message": "Term not found"}
+   raise HTTPException(status_code=404, detail="Term not found")
+
+
+@app.delete("/terms/{term_id}", status_code=204)
+def delete_term(term_id: int):
+   for note in notes:
+      if note["id"] == term_id:
+         notes.remove(note)
+         return note
+   raise HTTPException(status_code=404, detail="Term nor found")  
+
+
+
+@app.get("/stats")
+def get_stats():
+   learned = 0
+   by_tag= {}
+   for note in notes:
+      if note["learned"]:
+         learned += 1
+      for tag in note["tags"]:
+         by_tag[tag] = by_tag.get(tag, 0) + 1
+   return {"total": len(notes), "learned": learned, "by_tag": by_tag}
+
+  
